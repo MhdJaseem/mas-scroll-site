@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scroll Sequence</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; }
+  body { overflow-x: hidden; }
+  body.locked { overflow: hidden; height: 100vh; }
+  #stage { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; background: #000; }
+  #spacer { width: 1px; }
+
+  #loader {
+    position: fixed; inset: 0; z-index: 10; background: #000; color: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+    font: 500 13px/1 system-ui, sans-serif; letter-spacing: .25em; text-transform: uppercase;
+    transition: opacity .8s ease; text-align: center; padding: 0 20px; box-sizing: border-box;
+  }
+  #loader.hide { opacity: 0; pointer-events: none; }
+  #loader .track { width: min(320px, 70vw); height: 2px; background: rgba(255,255,255,.18); overflow: hidden; }
+  #loader .fill { width: 0%; height: 100%; background: #fff; transition: width .15s linear; }
+  #loader .pct { font-size: 28px; letter-spacing: .1em; font-weight: 300; }
+  #loader .err { font: 400 12px/1.6 Consolas, monospace; letter-spacing: 0; text-transform: none; color: #f2c230; word-break: break-all; max-width: 90vw; }
+
+  #hint {
+    position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+    color: #fff; font: 500 12px/1 system-ui, sans-serif; letter-spacing: .2em; text-transform: uppercase;
+    opacity: 0; z-index: 5; transition: opacity .5s ease; pointer-events: none;
+  }
+  #progress {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 160px; background: rgba(255,255,255,.18); border-radius: 2px; z-index: 5;
+  }
+  #progress i { display: block; width: 100%; height: 0; background: #fff; border-radius: 2px; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; z-index: 4; pointer-events: none; font-family: system-ui, "Segoe UI", sans-serif; color: #fff; }
+
+  /* Prices (video 3) */
+  #prices { left: 0; right: 0; bottom: 7vh; display: flex; flex-direction: column; align-items: center; gap: 2.2vh; }
+  #prices .title {
+    font: 700 clamp(12px, 1.7vh, 17px)/1 system-ui, sans-serif; letter-spacing: .35em; text-transform: uppercase;
+    color: #f2c230; text-shadow: 0 2px 10px rgba(0,0,0,.7); opacity: 0;
+  }
+  #prices .row { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(10px, 2vw, 28px); }
+  .badge {
+    width: clamp(120px, 16vw, 200px); aspect-ratio: 1; border-radius: 50%;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    border: 3px solid #d4af37; box-shadow: 0 10px 30px rgba(0,0,0,.55), inset 0 0 18px rgba(0,0,0,.25);
+    opacity: 0; will-change: opacity, transform;
+  }
+  .badge .lbl { font: 700 clamp(9px, 1.25vw, 15px)/1.1 "Arial Narrow", system-ui, sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: 0 12%; }
+  .badge .num { font: 800 clamp(26px, 4vw, 52px)/1 "Arial Narrow", Impact, system-ui, sans-serif; margin: 3px 0 1px; }
+  .badge .num small { font-size: .32em; font-weight: 700; margin-left: 2px; }
+  .badge .kg { font: 700 clamp(8px, .95vw, 12px)/1 system-ui, sans-serif; letter-spacing: .12em; background: rgba(0,0,0,.65); padding: 3px 8px; border-radius: 3px; border: 1px solid rgba(255,255,255,.35); }
+  .b-air  { background: #e8912d; } .b-air .num { color: #1d2a6b; }
+  .b-sea  { background: #1f7a2e; } .b-sea .num { color: #f2c230; }
+  .b-pk   { background: #0f3d1c; } .b-pk  .num { color: #f2c230; }
+  .b-bd   { background: #1b6b34; } .b-bd  .num { color: #f2c230; }
+
+  /* ---------- Video 4: destinations ---------- */
+
+  /* Left and right glass panels */
+  .cside { top: 50%; transform: translateY(-50%); }
+  #cl-left  { left: clamp(8px, 2.5vw, 48px); }
+  #cl-right { right: clamp(26px, 4vw, 64px); }
+
+  .panel {
+    width: clamp(178px, 20vw, 285px); box-sizing: border-box;
+    padding: clamp(12px, 2vh, 20px) clamp(12px, 1.4vw, 20px) clamp(6px, 1vh, 10px);
+    border-radius: 20px;
+    background: linear-gradient(165deg, rgba(40, 10, 10, .78) 0%, rgba(12, 5, 5, .66) 100%);
+    border: 1px solid rgba(242,194,48,.38);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 18px 50px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.12);
+    opacity: 0; will-change: opacity, transform;
+  }
+  .chead {
+    display: flex; align-items: center; gap: 10px; margin-bottom: clamp(4px, .8vh, 8px);
+    font: 700 clamp(8px, 1.15vh, 11px)/1.2 system-ui, sans-serif; letter-spacing: .24em; text-transform: uppercase; color: #f2c230;
+  }
+  .chead::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(242,194,48,.7), transparent); }
+  #cl-right .chead { flex-direction: row-reverse; text-align: right; }
+  #cl-right .chead::after { background: linear-gradient(270deg, rgba(242,194,48,.7), transparent); }
+
+  .item {
+    display: flex; align-items: center; gap: clamp(8px, 1vw, 12px);
+    padding: clamp(4px, .95vh, 9px) 2px; border-bottom: 1px solid rgba(255,255,255,.09);
+    opacity: 0; will-change: opacity, transform;
+  }
+  .item:last-child { border-bottom: 0; }
+  #cl-right .item { flex-direction: row-reverse; text-align: right; }
+  .item img {
+    width: clamp(26px, 3.5vh, 40px); height: clamp(18px, 2.5vh, 27px); object-fit: cover; flex-shrink: 0;
+    border-radius: 4px; background: #fff;
+    box-shadow: 0 0 0 1px rgba(242,194,48,.6), 0 3px 8px rgba(0,0,0,.55);
+  }
+  .item .globe { font-size: clamp(16px, 2.4vh, 24px); width: clamp(26px, 3.5vh, 40px); text-align: center; flex-shrink: 0; }
+  .item .nm {
+    flex: 1; font: 600 clamp(10px, 1.6vh, 15px)/1.1 system-ui, sans-serif; letter-spacing: .09em; text-transform: uppercase;
+    text-shadow: 0 1px 6px rgba(0,0,0,.8);
+  }
+
+  /* Bottom closing banner */
+  #closing {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: clamp(16px, 3.8vh, 34px);
+    display: inline-flex; align-items: center; justify-content: center; gap: clamp(10px, 1.6vw, 22px); white-space: nowrap;
+    padding: clamp(10px, 1.8vh, 17px) clamp(22px, 3.6vw, 46px); border-radius: 999px;
+    border: 1.5px solid transparent;
+    background:
+      linear-gradient(135deg, rgba(22, 6, 6, .94), rgba(120, 18, 18, .92) 50%, rgba(22, 6, 6, .94)) padding-box,
+      linear-gradient(90deg, #8a6a12, #f7d56a, #8a6a12) border-box;
+    box-shadow: 0 14px 38px rgba(0,0,0,.85), 0 0 30px rgba(242,194,48,.32);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font: 800 clamp(14px, 2.4vw, 30px)/1.1 "Arial Narrow", system-ui, sans-serif; letter-spacing: .1em; text-transform: uppercase;
+    text-shadow: 0 2px 8px rgba(0,0,0,.95);
+    opacity: 0; will-change: opacity, transform; z-index: 6;
+  }
+  #closing .a { color: #fff; }
+  #closing .b { color: #f2c230; text-shadow: 0 2px 10px rgba(0,0,0,.95), 0 0 14px rgba(242,194,48,.55); }
+  #closing .sep { width: 1.5px; height: 1.1em; background: linear-gradient(180deg, transparent, #f2c230, transparent); }
+  #closing .star { color: #f2c230; font-size: .7em; filter: drop-shadow(0 0 5px rgba(242,194,48,.8)); }
+
+  @media (max-width: 700px) {
+    .panel { width: 40vw; padding: 9px 9px 4px; border-radius: 14px; }
+    #cl-left  { left: 6px; }
+    #cl-right { right: 24px; }
+    .chead { display: none; }
+    .item { gap: 6px; padding: 4px 1px; }
+    .item img { width: 22px; height: 15px; }
+    .item .globe { width: 22px; font-size: 14px; }
+    .item .nm { font-size: 9.5px; letter-spacing: .03em; }
+    #closing { padding: 9px 16px; gap: 8px; bottom: 14px; letter-spacing: .05em; }
+    #closing .star { display: none; }
+  }
+</style>
+</head>
+<body class="locked">
+
+<canvas id="stage"></canvas>
+<div id="spacer"></div>
+
+<div id="loader">
+  <div class="msg">Loading</div>
+  <div class="pct" id="pct">0%</div>
+  <div class="track"><div class="fill" id="fill"></div></div>
+  <div class="err" id="err"></div>
+</div>
+<!-- Video 3: prices -->
+<div id="prices" class="overlay">
+  <div class="title">Special Prices</div>
+  <div class="row">
+    <div class="badge b-air" data-price="10.99"><div class="lbl">Special Price<br>Air Cargo</div><div class="num"><span>0.00</span><small>AED</small></div><div class="kg">PER KG</div></div>
+    <div class="badge b-sea" data-price="6.49"><div class="lbl">Special Price<br>Sea Cargo</div><div class="num"><span>0.00</span><small>AED</small></div><div class="kg">PER KG</div></div>
+    <div class="badge b-pk" data-price="6.49"><div class="lbl">Pakistan<br>Sea Cargo</div><div class="num"><span>0.00</span><small>AED</small></div><div class="kg">PER KG</div></div>
+    <div class="badge b-bd" data-price="18.99"><div class="lbl">Bangladesh<br>Air Cargo</div><div class="num"><span>0.00</span><small>AED</small></div><div class="kg">PER KG</div></div>
+  </div>
+</div>
+
+
+<div id="cl-left" class="overlay cside">
+  <div class="panel"><div class="chead">Europe &middot; Americas &middot; Africa</div><div class="items"></div></div>
+</div>
+<div id="cl-right" class="overlay cside">
+  <div class="panel"><div class="chead">Asia &middot; Pacific &middot; Middle East</div><div class="items"></div></div>
+</div>
+
+<div id="closing" class="overlay"><span class="star">&#9733;</span><span class="a">12 Branches</span><span class="sep"></span><span class="b">One Trusted Partner</span><span class="star">&#9733;</span></div>
+
+<div id="hint">Scroll</div>
+<div id="progress"><i></i></div>
+
+<script>
+/* ============ SETTINGS (edit these) ============ */
+const SEQUENCES = [
+  { folder: 'frames_24fps_1', count: 124 },
+  { folder: 'frames_24fps_2', count: 175 },
+  { folder: 'frames_24fps_3', count: 158 },
+  { folder: 'frames_24fps_4', count: 158 },
+];
+const EXT          = 'webp';  // 'webp' for the website folder, 'png' for the original PNG frames
+const PX_PER_FRAME = 22;     // scroll pixels per frame. Higher = slower, finer control
+const SMOOTHING    = 0.085;  // 0.03 (very floaty) to 0.3 (snappy)
+const BASE_WIDTH   = 960;    // every frame is kept in memory at this width (lower = less RAM)
+const HI_WIDTH     = 1920;   // sharp version used near the current frame
+const HI_WINDOW    = 28;     // how many sharp frames to keep on each side of the current one
+const CONCURRENCY  = 8;      // how many images the loader reads at once
+/* ================================================ */
+
+const frames = [];
+SEQUENCES.forEach(seq => {
+  for (let i = 1; i <= seq.count; i++) {
+    frames.push(`${seq.folder}/frame_${String(i).padStart(4, '0')}.${EXT}`);
+  }
+});
+const N = frames.length;
+
+const canvas = document.getElementById('stage');
+const ctx = canvas.getContext('2d');
+const spacer = document.getElementById('spacer');
+const loader = document.getElementById('loader');
+const pctEl = document.getElementById('pct');
+const fillEl = document.getElementById('fill');
+const errEl = document.getElementById('err');
+const hint = document.getElementById('hint');
+const bar = document.querySelector('#progress i');
+
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+
+let vw = 0, vh = 0, ready = false, needsDraw = true;
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+  vw = window.innerWidth; vh = window.innerHeight;
+  canvas.width = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  spacer.style.height = (N * PX_PER_FRAME + vh) + 'px';
+  needsDraw = true;
+}
+window.addEventListener('resize', resize);
+
+/* ---------- Layer 1: every frame, lighter copy (loaded by the loader) ---------- */
+const base = new Array(N).fill(null);
+const failed = [];
+
+function shrink(img, width) {
+  const w = Math.min(width, img.naturalWidth || width);
+  if (window.createImageBitmap) {
+    return createImageBitmap(img, { resizeWidth: w, resizeQuality: 'high' }).catch(() => img);
+  }
+  return Promise.resolve(img);
+}
+
+function loadBase(i) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => shrink(img, BASE_WIDTH).then(b => { base[i] = b; resolve(); });
+    img.onerror = () => { failed.push(frames[i]); resolve(); };
+    img.src = frames[i];
+  });
+}
+
+function runLoader() {
+  let next = 0, done = 0;
+  function update() {
+    const p = Math.round(done / N * 100);
+    pctEl.textContent = p + '%';
+    fillEl.style.width = p + '%';
+  }
+  function worker() {
+    if (next >= N) return;
+    const i = next++;
+    loadBase(i).then(() => {
+      done++; update();
+      if (done === N) finish(); else worker();
+    });
+  }
+  for (let w = 0; w < CONCURRENCY; w++) worker();
+}
+
+function finish() {
+  ready = true;
+  const missing = base.filter(b => !b).length;
+  if (missing === N) {
+    document.querySelector('#loader .msg').textContent = 'Could not load any frames';
+    pctEl.textContent = '';
+    errEl.innerHTML = 'The page looked for files like:<br>' + (failed[0] || frames[0]) +
+      '<br><br>Check that this folder and file exist next to index.html (same capital letters, same .' + EXT + ' extension).';
+    return;
+  }
+  if (missing > 0) console.warn(missing + ' frames failed to load. First missing: ' + failed[0]);
+  document.body.classList.remove('locked');
+  window.scrollTo(0, 0);
+  loader.classList.add('hide');
+  hint.style.opacity = 0.7;
+  needsDraw = true;
+}
+
+/* ---------- Layer 2: sharp frames near the current position ---------- */
+const hi = new Map();
+
+function requestHi(i) {
+  if (i < 0 || i >= N || hi.has(i)) return;
+  hi.set(i, null);
+  const img = new Image();
+  img.onload = () => shrink(img, HI_WIDTH).then(b => {
+    if (hi.has(i)) { hi.set(i, b); needsDraw = true; } else if (b.close) b.close();
+  });
+  img.onerror = () => hi.delete(i);
+  img.src = frames[i];
+}
+
+function manageHi(center) {
+  const c = Math.round(center);
+  for (let d = 0; d <= HI_WINDOW; d++) { requestHi(c + d); requestHi(c - d); }
+  const keep = HI_WINDOW + 10;
+  for (const [k, v] of hi) {
+    if (Math.abs(k - c) > keep) { if (v && v.close) v.close(); hi.delete(k); }
+  }
+}
+
+function getFrame(i) {
+  i = Math.max(0, Math.min(N - 1, i));
+  const h = hi.get(i);
+  if (h) return h;
+  if (base[i]) return base[i];
+  for (let d = 1; d < N; d++) {            // nearest loaded frame as a fallback
+    if (base[i - d]) return base[i - d];
+    if (base[i + d]) return base[i + d];
+  }
+  return null;
+}
+
+/* ---------- Drawing ---------- */
+function drawCover(img, alpha) {
+  const iw = img.width || img.naturalWidth, ih = img.height || img.naturalHeight;
+  if (!iw || !ih) return;
+  const cw = canvas.width, ch = canvas.height;
+  const s = Math.max(cw / iw, ch / ih);
+  const w = iw * s, h = ih * s;
+  ctx.globalAlpha = alpha;
+  ctx.drawImage(img, (cw - w) / 2, (ch - h) / 2, w, h);
+}
+
+/* ---------- Overlays: prices (video 3) and countries (video 4) ---------- */
+/* All ranges are a share of that video's length: 0 = its first frame, 1 = its last frame */
+const OVERLAY = {
+  pricesVideo: 3,              // which video shows the prices
+  pricesFadeIn:  [0.72, 0.90], // video 3: fades in near the END
+  pricesFadeOut: [0.00, 0.12], // video 4: fades out as it begins
+  countriesVideo: 4,
+  countryStart: 0.10,          // video 4: when the first country appears
+  countryStep:  0.075,         // gap between countries (left + right appear together)
+  countryFade:  0.08,          // how long each country takes to fade in
+  closingLine: [0.72, 0.86],   // video 4: "12 Branches | One Trusted Partner"
+};
+
+const LEFT_COUNTRIES = [
+  ['UK', 'country img/UK.svg', 'gb'],
+  ['USA', 'country img/usa.webp', 'us'],
+  ['Canada', 'country img/canada.webp', 'ca'],
+  ['Africa', 'country img/Africa.webp', ''],
+  ['France', 'country img/France.webp', 'fr'],
+  ['Germany', 'country img/Germany.webp', 'de'],
+  ['Netherland', 'country img/Netherlands.webp', 'nl'],
+  ['Sweden', 'country img/Sweden.webp', 'se'],
+  ['Norway', 'country img/Norway.webp', 'no'],
+  ['Rest of Europe', 'country img/RestOfEurope.jpg', 'eu'],
+];
+const RIGHT_COUNTRIES = [
+  ['Australia', 'country img/Australia.webp', 'au'],
+  ['New Zealand', 'country img/New_Zealand.webp', 'nz'],
+  ['India', 'country img/india.webp', 'in'],
+  ['Pakistan', 'country img/Pakistan.webp', 'pk'],
+  ['Bangladesh', 'country img/Bangladesh.webp', 'bd'],
+  ['Sri Lanka', 'country img/Sri_Lanka.webp', 'lk'],
+  ['Middle East', 'country img/Middle_East.png', ''],
+  ['Nepal', 'country img/Nepal.webp', 'np'],
+  ['China', 'country img/China.webp', 'cn'],
+  ['Far East', 'country img/Far_East.webp', ''],
+];
+
+const seqStart = [], seqLen = [];
+(function () { let s = 0; SEQUENCES.forEach(q => { seqStart.push(s); seqLen.push(q.count - 1); s += q.count; }); })();
+
+const clamp01 = x => Math.max(0, Math.min(1, x));
+const seg = (p, a, b) => clamp01((p - a) / (b - a));
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+
+function buildItems(el, list) {
+  return list.map(([name, src, flagCode]) => {
+    const d = document.createElement('div');
+    d.className = 'item';
+    d.innerHTML = `<img src="${src}" alt="${name}"><span class="nm">${name}</span>`;
+    const img = d.querySelector('img');
+    img.onerror = function () {
+      if (flagCode && !this.dataset.cdnTried) {
+        this.dataset.cdnTried = '1';
+        this.src = `https://flagcdn.com/w80/${flagCode}.png`;
+      } else {
+        this.outerHTML = `<span class="globe">&#127760;</span>`;
+      }
+    };
+    el.appendChild(d);
+    return d;
+  });
+}
+const panelL = document.querySelector('#cl-left .panel');
+const panelR = document.querySelector('#cl-right .panel');
+const leftPills  = buildItems(panelL.querySelector('.items'), LEFT_COUNTRIES);
+const rightPills = buildItems(panelR.querySelector('.items'), RIGHT_COUNTRIES);
+
+const badges  = [...document.querySelectorAll('.badge')];
+const priceTitle = document.querySelector('#prices .title');
+const closingEl = document.getElementById('closing');
+
+function updateOverlays(f) {
+  const pv = OVERLAY.pricesVideo - 1, cv = OVERLAY.countriesVideo - 1;
+  const p3 = (f - seqStart[pv]) / seqLen[pv];
+  const p4 = (f - seqStart[cv]) / seqLen[cv];
+
+  // Prices: fade in at the end of video 3, fade out when video 4 starts
+  const priceA = seg(p3, OVERLAY.pricesFadeIn[0], OVERLAY.pricesFadeIn[1]) *
+                 (1 - seg(p4, OVERLAY.pricesFadeOut[0], OVERLAY.pricesFadeOut[1]));
+  priceTitle.style.opacity = priceA;
+  badges.forEach((b, i) => {
+    const a = seg(priceA, i * 0.1, i * 0.1 + 0.6);
+    b.style.opacity = a;
+    b.style.transform = `translateY(${(1 - a) * 26}px) scale(${0.88 + 0.12 * a})`;
+    b.querySelector('.num span').textContent = (parseFloat(b.dataset.price) * easeOut(a)).toFixed(2);
+  });
+
+  // Side panels glide in, then each country row appears one by one
+  const pa = easeOut(seg(p4, OVERLAY.countryStart - 0.06, OVERLAY.countryStart + 0.04));
+  panelL.style.opacity = pa; panelL.style.transform = `translateX(${(1 - pa) * -50}px)`;
+  panelR.style.opacity = pa; panelR.style.transform = `translateX(${(1 - pa) * 50}px)`;
+
+  for (let i = 0; i < leftPills.length; i++) {
+    const s = OVERLAY.countryStart + i * OVERLAY.countryStep;
+    const a = easeOut(seg(p4, s, s + OVERLAY.countryFade));
+    leftPills[i].style.opacity = a;
+    leftPills[i].style.transform = `translateX(${(1 - a) * -28}px)`;
+    rightPills[i].style.opacity = a;
+    rightPills[i].style.transform = `translateX(${(1 - a) * 28}px)`;
+  }
+
+  const ca = easeOut(seg(p4, OVERLAY.closingLine[0], OVERLAY.closingLine[1]));
+  closingEl.style.opacity = ca;
+  closingEl.style.transform = `translateX(-50%) translateY(${(1 - ca) * 20}px) scale(${0.92 + 0.08 * ca})`;
+}
+
+let current = 0, target = 0, lastT = performance.now();
+
+function getTarget() {
+  const y = window.scrollY || window.pageYOffset;
+  const p = Math.min(1, Math.max(0, y / (N * PX_PER_FRAME)));
+  return p * (N - 1);
+}
+
+function render(now) {
+  const dt = Math.min(0.05, (now - lastT) / 1000);
+  lastT = now;
+
+  if (ready) {
+    target = getTarget();
+    const k = 1 - Math.pow(1 - SMOOTHING, dt * 60);   // same feel at 60Hz or 144Hz
+    const diff = target - current;
+    if (Math.abs(diff) > 0.0005) { current += diff * k; needsDraw = true; }
+    else if (current !== target) { current = target; needsDraw = true; }
+
+    manageHi(current);
+
+    if (needsDraw) {
+      const a = Math.floor(current);
+      const t = current - a;
+      const A = getFrame(a);
+      const B = t > 0.01 ? getFrame(a + 1) : null;
+      if (A) {
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawCover(A, 1);
+        if (B && B !== A) drawCover(B, t);   // blend between neighbours for fluid motion
+        ctx.globalAlpha = 1;
+      }
+      bar.style.height = (current / (N - 1) * 100) + '%';
+      updateOverlays(current);
+      if (current > 3) hint.style.opacity = 0;
+      needsDraw = false;
+    }
+  }
+  requestAnimationFrame(render);
+}
+
+window.addEventListener('scroll', () => { needsDraw = true; }, { passive: true });
+
+resize();
+runLoader();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
